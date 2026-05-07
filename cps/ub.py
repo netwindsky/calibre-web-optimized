@@ -41,7 +41,7 @@ except ImportError as e:
         OAuthConsumerMixin = BaseException
         oauth_support = False
 from sqlalchemy import create_engine, exc, exists, event, text
-from sqlalchemy import Column, ForeignKey
+from sqlalchemy import Column, ForeignKey, Index
 from sqlalchemy import String, Integer, SmallInteger, Boolean, DateTime, Float, JSON
 from sqlalchemy.orm.attributes import flag_modified
 from sqlalchemy.sql.expression import func
@@ -564,6 +564,9 @@ def filename(context):
 
 class Thumbnail(Base):
     __tablename__ = 'thumbnail'
+    __table_args__ = (
+        Index('ix_thumbnail_type_entity_id', 'type', 'entity_id'),
+    )
 
     id = Column(Integer, primary_key=True)
     entity_id = Column(Integer)
@@ -582,6 +585,22 @@ def add_missing_tables(engine, _session):
         ArchivedBook.__table__.create(bind=engine)
     if not engine.dialect.has_table(engine.connect(), "thumbnail"):
         Thumbnail.__table__.create(bind=engine)
+    _add_thumbnail_index(engine)
+
+
+def _add_thumbnail_index(engine):
+    try:
+        with engine.connect() as conn:
+            result = conn.execute(text(
+                "SELECT name FROM sqlite_master WHERE type='index' AND name='ix_thumbnail_type_entity_id'"
+            )).fetchone()
+            if not result:
+                conn.execute(text(
+                    "CREATE INDEX ix_thumbnail_type_entity_id ON thumbnail (type, entity_id)"
+                ))
+                conn.commit()
+    except exc.OperationalError:
+        pass
 
 
 # migrate all settings missing in registration table
