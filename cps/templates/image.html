@@ -1,0 +1,21 @@
+{% macro book_cover(book, alt=None) -%}
+    {%- set image_title = book.title if book.title else book.name -%}
+    {%- set image_alt = alt if alt else image_title -%}
+    <img
+        class="lazy-cover"
+        src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"
+        data-src="{{ url_for('web.get_cover', book_id=book.id, resolution='sm', c=book|last_modified) }}"
+        alt="{{ image_alt }}"
+    />
+{%- endmacro %}
+
+{% macro series(series, alt=None) -%}
+    {%- set image_title = series.name if series.name else '' -%}
+    {%- set image_alt = alt if alt else image_title -%}
+    <img
+        class="lazy-cover"
+        src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"
+        data-src="{{ url_for('web.get_series_cover', series_id=series.id, resolution='sm', c='day'|cache_timestamp) }}"
+        alt="{{ image_alt }}"
+    />
+{%- endmacro %}
