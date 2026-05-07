@@ -911,92 +911,6 @@ class CalibreDB:
             .filter(self.common_filters(allow_show_archived))
         if database == Books:
             query = query.options(
-                selectinload(Books.authors),
-                selectinload(Books.tags),
-                selectinload(Books.series),
-                selectinload(Books.languages),
-                selectinload(Books.publishers),
-                selectinload(Books.data)
-            )
-        entries = list()
-        pagination = list()
-        try:
-            total_count = query.count()
-            pagination = Pagination(page, pagesize, total_count)
-            entries = query.order_by(*order).offset(off).limit(pagesize).all()
-        except (OperationalError, sqliteOperationalError, InvalidRequestError) as ex:
-            log.error_or_exception(ex)
-        # display authors in right order
-        entries = self.order_authors(entries, True, join_archive_read)
-        return entries, randm, pagination
-
-    # Orders all Authors in the list according to authors sort
-    def order_authors(self, entries, list_return=False, combined=False):
-        for entry in entries:
-            if combined:
-                sort_authors = entry.Books.author_sort.split('&')
-                authors_list = entry.Books.authors
-            else:
-                sort_authors = entry.author_sort.split('&')
-                authors_list = entry.authors
-
-            # Create dictionary for O(1) lookup instead of nested loops
-            authors_by_sort = {}
-            authors_by_id = {}
-            for author in authors_list:
-                authors_by_sort[author.sort] = author
-                authors_by_id[author.id] = author
-
-            authors_ordered = []
-            ids_remaining = set(authors_by_id.keys())
-
-            # Order authors based on sort field using dictionary lookup
-            for auth in sort_authors:
-                auth = strip_whitespaces(auth)
-                if auth in authors_by_sort:
-                    author = authors_by_sort[auth]
-                    authors_ordered.append(author)
-                    ids_remaining.discard(author.id)
-                else:
-                    # This can happen if author_sort has stale data or formatting issues
-                    book_id = entry.id if isinstance(entry, Books) else (entry.Books.id if combined else entry.id)
-                    log.warning("Author '{}' of book {} not found in author list, skipping in sort order".format(auth, book_id))
-
-            # Add any remaining authors not in sort order
-            for author_id in ids_remaining:
-                authors_ordered.append(authors_by_id[author_id])
-
-            if list_return:
-                if combined:
-                    entry.Books.authors = authors_ordered
-                else:
-                    entry.ordered_authors = authors_ordered
-            else:
-                return authors_ordered
-        return entries
-
-    def get_typeahead(self, database, query, replace=('', ''), tag_filter=true()):
-        query = query or ''
-        self.create_functions()
-        entries = self.session.query(database).filter(tag_filter). \
-            filter(func.lower(database.name).ilike("%" + query + "%")).all()
-        json_dumps = json.dumps([dict(name=r.name.replace(*replace)) for r in entries])
-        return json_dumps
-
-    def check_exists_book(self, authr, title):
-        self.create_functions()
-        q = list()
-        author_terms = re.split(r'\s*&\s*', authr)
-        for author_term in author_terms:
-            q.append(Books.authors.any(func.lower(Authors.name).ilike("%" + author_term + "%")))
-
-        return self.session.query(Books) \
-            .filter(and_(Books.authors.any(and_(*q)), func.lower(Books.title).ilike("%" + title + "%"))).first()
-
-    def search_query(self, term, config, *join):
-        term = strip_whitespaces(term).lower()
-        self.create_functions()
-
         # Try FTS5 search first for better performance
         fts_ids = None
         # Check if FTS5 table exists before attempting search
@@ -1044,32 +958,32 @@ class CalibreDB:
             return base_query.filter(Books.id.in_(fts_ids))
 
         # Fallback to traditional search with optimized subqueries
+        # Use LIKE instead of ilike to avoid unidecode-based lower() function
+        # which incorrectly transliterates CJK characters (e.g. 盏→zhan, 战→zhan)
         author_terms = re.split("[, ]+", term)
 
-        # Use subquery for authors to avoid expensive .any() with OR
         author_subquery = self.session.query(books_authors_link.c.book).join(
             Authors, books_authors_link.c.author == Authors.id
         )
         author_filters = []
         for author_term in author_terms:
-            author_filters.append(func.lower(Authors.name).ilike("%" + author_term + "%"))
+            author_filters.append(Authors.name.like("%" + author_term + "%"))
         if author_filters:
             author_subquery = author_subquery.filter(and_(*author_filters))
 
-        # Build optimized filter expressions
         cc = self.get_cc_columns(config, filter_config_custom_read=True)
         filter_expression = [
             Books.id.in_(self.session.query(books_tags_link.c.book).join(
                 Tags, books_tags_link.c.tag == Tags.id
-            ).filter(func.lower(Tags.name).ilike("%" + term + "%"))),
+            ).filter(Tags.name.like("%" + term + "%"))),
             Books.id.in_(self.session.query(books_series_link.c.book).join(
                 Series, books_series_link.c.series == Series.id
-            ).filter(func.lower(Series.name).ilike("%" + term + "%"))),
+            ).filter(Series.name.like("%" + term + "%"))),
             Books.id.in_(author_subquery),
             Books.id.in_(self.session.query(books_publishers_link.c.book).join(
                 Publishers, books_publishers_link.c.publisher == Publishers.id
-            ).filter(func.lower(Publishers.name).ilike("%" + term + "%"))),
-            func.lower(Books.title).ilike("%" + term + "%")
+            ).filter(Publishers.name.like("%" + term + "%"))),
+            Books.title.like("%" + term + "%")
         ]
 
         for c in cc:
@@ -1077,7 +991,7 @@ class CalibreDB:
                 filter_expression.append(
                     getattr(Books,
                             'custom_column_' + str(c.id)).any(
-                        func.lower(cc_classes[c.id].value).ilike("%" + term + "%")))
+                        cc_classes[c.id].value.like("%" + term + "%")))
 
         return base_query.filter(or_(*filter_expression))
 
