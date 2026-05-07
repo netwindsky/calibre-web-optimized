@@ -979,7 +979,7 @@ class CalibreDB:
         query = query or ''
         self.create_functions()
         entries = self.session.query(database).filter(tag_filter). \
-            filter(func.lower(database.name).ilike("%" + query + "%")).all()
+            filter(database.name.like("%" + query + "%")).all()
         json_dumps = json.dumps([dict(name=r.name.replace(*replace)) for r in entries])
         return json_dumps
 
@@ -988,10 +988,10 @@ class CalibreDB:
         q = list()
         author_terms = re.split(r'\s*&\s*', authr)
         for author_term in author_terms:
-            q.append(Books.authors.any(func.lower(Authors.name).ilike("%" + author_term + "%")))
+            q.append(Books.authors.any(Authors.name.like("%" + author_term + "%")))
 
         return self.session.query(Books) \
-            .filter(and_(Books.authors.any(and_(*q)), func.lower(Books.title).ilike("%" + title + "%"))).first()
+            .filter(and_(Books.authors.any(and_(*q)), Books.title.like("%" + title + "%"))).first()
 
     def search_query(self, term, config, *join):
         term = strip_whitespaces(term).lower()
@@ -1044,32 +1044,32 @@ class CalibreDB:
             return base_query.filter(Books.id.in_(fts_ids))
 
         # Fallback to traditional search with optimized subqueries
+        # Use LIKE instead of ilike to avoid unidecode-based lower() function
+        # which incorrectly transliterates CJK characters (e.g. 盏→zhan, 战→zhan)
         author_terms = re.split("[, ]+", term)
 
-        # Use subquery for authors to avoid expensive .any() with OR
         author_subquery = self.session.query(books_authors_link.c.book).join(
             Authors, books_authors_link.c.author == Authors.id
         )
         author_filters = []
         for author_term in author_terms:
-            author_filters.append(func.lower(Authors.name).ilike("%" + author_term + "%"))
+            author_filters.append(Authors.name.like("%" + author_term + "%"))
         if author_filters:
             author_subquery = author_subquery.filter(and_(*author_filters))
 
-        # Build optimized filter expressions
         cc = self.get_cc_columns(config, filter_config_custom_read=True)
         filter_expression = [
             Books.id.in_(self.session.query(books_tags_link.c.book).join(
                 Tags, books_tags_link.c.tag == Tags.id
-            ).filter(func.lower(Tags.name).ilike("%" + term + "%"))),
+            ).filter(Tags.name.like("%" + term + "%"))),
             Books.id.in_(self.session.query(books_series_link.c.book).join(
                 Series, books_series_link.c.series == Series.id
-            ).filter(func.lower(Series.name).ilike("%" + term + "%"))),
+            ).filter(Series.name.like("%" + term + "%"))),
             Books.id.in_(author_subquery),
             Books.id.in_(self.session.query(books_publishers_link.c.book).join(
                 Publishers, books_publishers_link.c.publisher == Publishers.id
-            ).filter(func.lower(Publishers.name).ilike("%" + term + "%"))),
-            func.lower(Books.title).ilike("%" + term + "%")
+            ).filter(Publishers.name.like("%" + term + "%"))),
+            Books.title.like("%" + term + "%")
         ]
 
         for c in cc:
@@ -1077,7 +1077,7 @@ class CalibreDB:
                 filter_expression.append(
                     getattr(Books,
                             'custom_column_' + str(c.id)).any(
-                        func.lower(cc_classes[c.id].value).ilike("%" + term + "%")))
+                        cc_classes[c.id].value.like("%" + term + "%")))
 
         return base_query.filter(or_(*filter_expression))
 

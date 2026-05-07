@@ -218,25 +218,29 @@
     <script src="{{ url_for('static', filename='js/uploadprogress.js') }}"> </script>
     <script src="{{ url_for('static', filename='js/main.js') }}"></script>
     <script>
-      (function() {
+      function initLazyCovers() {
         if ('IntersectionObserver' in window) {
-          var lazyImages = document.querySelectorAll('.lazy-cover');
+          var lazyImages = document.querySelectorAll('.lazy-cover:not([data-lazy-loaded])');
+          if (lazyImages.length === 0) return;
           var observer = new IntersectionObserver(function(entries) {
             entries.forEach(function(entry) {
               if (entry.isIntersecting) {
                 var img = entry.target;
                 img.src = img.dataset.src;
+                img.setAttribute('data-lazy-loaded', '1');
                 observer.unobserve(img);
               }
             });
           }, { rootMargin: '200px' });
           lazyImages.forEach(function(img) { observer.observe(img); });
         } else {
-          document.querySelectorAll('.lazy-cover').forEach(function(img) {
+          document.querySelectorAll('.lazy-cover:not([data-lazy-loaded])').forEach(function(img) {
             img.src = img.dataset.src;
+            img.setAttribute('data-lazy-loaded', '1');
           });
         }
-      })();
+      }
+      initLazyCovers();
     </script>
     {% if g.current_theme == 1 %}
       <script src="{{ url_for('static', filename='js/libs/jquery.visible.min.js') }}"></script>
