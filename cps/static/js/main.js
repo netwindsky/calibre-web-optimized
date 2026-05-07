@@ -407,6 +407,9 @@ $(function() {
                   .removeAttr("data-toggle");
             }
             $(".load-more .row").isotope( "appended", $(data), null );
+            if (typeof initLazyCovers === "function") {
+                initLazyCovers();
+            }
         });
 
         // fix for infinite scroll on CaliBlur Theme (#981)
