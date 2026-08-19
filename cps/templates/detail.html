@@ -158,6 +158,29 @@
                 <p>{{ _("Book %(index)s of %(range)s", index=entry.series_index|formatfloat(2), range=(url_for('web.books_list', data='series', sort_param='stored', book_id=entry.series[0].id)|escapedlink(entry.series[0].name))|safe) }}</p>
 
             {% endif %}
+            {% if not current_user.is_anonymous and reading_progress and entry.id in reading_progress and not entry.read_status %}
+            {% set _rp = reading_progress[entry.id] %}
+            <div class="reading-progress-detail">
+                <div class="reading-progress-detail-label">
+                    <span class="glyphicon glyphicon-bookmark"></span>
+                    {{ _('Reading progress') }}: <strong>{{ '%.1f'|format(_rp.progress_percent) }}%</strong>
+                </div>
+                <div class="progress">
+                    <div class="progress-bar{% if _rp.progress_percent > 90 %} progress-bar-success{% endif %}" role="progressbar"
+                         aria-valuenow="{{ '%.0f'|format(_rp.progress_percent) }}" aria-valuemin="0" aria-valuemax="100"
+                         style="min-width:2%;width:{{ _rp.progress_percent }}%;">
+                        {{ '%.0f'|format(_rp.progress_percent) }}%
+                    </div>
+                </div>
+                {% if entry.reader_list %}
+                <a href="{{ url_for('web.read_book', book_id=entry.id, book_format=_rp.format or entry.reader_list[0]) }}"
+                   target="_blank" class="btn btn-primary btn-sm continue-reading-detail-btn">
+                    <span class="glyphicon glyphicon-book"></span> {{ _('Continue Reading') }}
+                    {% if _rp.format %} - {{ _rp.format|upper }}{% endif %}
+                </a>
+                {% endif %}
+            </div>
+            {% endif %}
 
             {% if entry.languages|length > 0 %}
                 <div class="languages">

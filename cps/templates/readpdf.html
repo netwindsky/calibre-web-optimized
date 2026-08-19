@@ -521,5 +521,93 @@ See https://github.com/adobe-type-tools/cmap-resources
 
     </div> <!-- outerContainer -->
     <div id="printContainer"></div>
+
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <script>
+    (function () {
+        var BOOKMARK_URL = "{{ url_for('web.set_bookmark', book_id=pdffile, book_format='pdf') }}";
+        var SAVED_PAGE = {% if bookmark and bookmark.bookmark_key %}{{ bookmark.bookmark_key }}{% else %}null{% endif %};
+        var csrfToken = document.querySelector("input[name='csrf_token']").value;
+        var lastSavedPage = -1;
+        var saveTimer = null;
+        var SAVE_THROTTLE_MS = 5000;
+        var restored = false;
+
+        function getPdfApp() {
+            return window.PDFViewerApplication;
+        }
+
+        function currentPage() {
+            var app = getPdfApp();
+            if (app && app.pdfViewer) return app.pdfViewer.currentPageNumber;
+            return null;
+        }
+
+        function totalPages() {
+            var app = getPdfApp();
+            if (app && app.pdfViewer && app.pagesCount) return app.pagesCount;
+            return null;
+        }
+
+        function saveProgress(page) {
+            if (page === null || page === lastSavedPage) return;
+            lastSavedPage = page;
+            var total = totalPages();
+            var percent = total && total > 0 ? Math.round((page / total) * 1000) / 10 : 0;
+            var formData = new FormData();
+            formData.append("bookmark", String(page));
+            formData.append("progress_percent", String(percent));
+            fetch(BOOKMARK_URL, {
+                method: "POST",
+                headers: { "X-CSRFToken": csrfToken },
+                body: new URLSearchParams(formData),
+            }).catch(function () {});
+        }
+
+        function throttledSave(page) {
+            if (saveTimer) clearTimeout(saveTimer);
+            saveTimer = setTimeout(function () { saveProgress(page); }, SAVE_THROTTLE_MS);
+        }
+
+        function flushSave() {
+            if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
+            var page = currentPage();
+            if (page !== null && page !== lastSavedPage) {
+                lastSavedPage = page;
+                var total = totalPages();
+                var percent = total && total > 0 ? Math.round((page / total) * 1000) / 10 : 0;
+                navigator.sendBeacon(BOOKMARK_URL,
+                    "bookmark=" + encodeURIComponent(String(page)) +
+                    "&progress_percent=" + encodeURIComponent(String(percent)));
+            }
+        }
+
+        function restorePage() {
+            if (restored) return;
+            var app = getPdfApp();
+            if (!app || !app.pdfViewer || !SAVED_PAGE) return;
+            var target = parseInt(SAVED_PAGE, 10);
+            if (target && target >= 1) {
+                try { app.pdfViewer.currentPageNumber = target; } catch (e) {}
+            }
+            restored = true;
+        }
+
+        document.addEventListener("pagesloaded", function onPages() {
+            restorePage();
+            var app = getPdfApp();
+            if (app && app.eventBus) {
+                app.eventBus.on("pagechanging", function (e) {
+                    if (!restored) { restorePage(); return; }
+                    throttledSave(e.pageNumber);
+                });
+            }
+            document.removeEventListener("pagesloaded", onPages);
+        });
+
+        window.addEventListener("beforeunload", flushSave);
+        window.addEventListener("pagehide", flushSave);
+    })();
+    </script>
   </body>
 </html>

@@ -66,6 +66,86 @@ var reader;
         } catch (e) {}
     })();
 
+    // --- Reading progress auto-save (throttled) ---
+    var lastSavedCfi = null;
+    var lastSavedPercentage = -1;
+    var lastSaveTime = 0;
+    var SAVE_THROTTLE_MS = 5000;
+    var pendingCfi = null;
+    var pendingPercentage = null;
+    var saveTimer = null;
+
+    function getCsrfToken() {
+        return $("input[name='csrf_token']").val();
+    }
+
+    function saveProgressToBackend(cfi, percentage) {
+        if (!calibre.bookmarkUrl) return;
+        var csrftoken = getCsrfToken();
+        var percentStr = (Math.round(percentage * 1000) / 10).toString();
+        $.ajax(calibre.bookmarkUrl, {
+            method: "post",
+            data: {
+                bookmark: cfi || "",
+                progress_percent: percentStr,
+            },
+            headers: { "X-CSRFToken": csrftoken },
+        }).done(function () {
+            lastSavedCfi = cfi;
+            lastSavedPercentage = percentage;
+        });
+    }
+
+    function throttledSaveProgress(cfi, percentage) {
+        pendingCfi = cfi;
+        pendingPercentage = percentage;
+        var now = Date.now();
+        var elapsed = now - lastSaveTime;
+        if (elapsed >= SAVE_THROTTLE_MS) {
+            if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
+            lastSaveTime = now;
+            saveProgressToBackend(pendingCfi, pendingPercentage);
+        } else if (!saveTimer) {
+            saveTimer = setTimeout(function () {
+                saveTimer = null;
+                lastSaveTime = Date.now();
+                saveProgressToBackend(pendingCfi, pendingPercentage);
+            }, SAVE_THROTTLE_MS - elapsed);
+        }
+    }
+
+    function flushProgressSave() {
+        if (saveTimer) {
+            clearTimeout(saveTimer);
+            saveTimer = null;
+        }
+        if (pendingCfi !== null && (pendingCfi !== lastSavedCfi || pendingPercentage !== lastSavedPercentage)) {
+            // Use sendBeacon for reliability during page unload
+            var percentStr = (Math.round(pendingPercentage * 1000) / 10).toString();
+            var csrftoken = getCsrfToken();
+            var formData = new FormData();
+            formData.append("bookmark", pendingCfi || "");
+            formData.append("progress_percent", percentStr);
+            formData.append("csrf_token", csrftoken || "");
+            if (navigator.sendBeacon && calibre.bookmarkUrl) {
+                var blob = new Blob([
+                    "bookmark=" + encodeURIComponent(pendingCfi || "") +
+                    "&progress_percent=" + encodeURIComponent(percentStr) +
+                    "&csrf_token=" + encodeURIComponent(csrftoken || "")
+                ], { type: "application/x-www-form-urlencoded" });
+                navigator.sendBeacon(calibre.bookmarkUrl, blob);
+                lastSavedCfi = pendingCfi;
+                lastSavedPercentage = pendingPercentage;
+            } else {
+                saveProgressToBackend(pendingCfi, pendingPercentage);
+            }
+        }
+    }
+
+    window.addEventListener("beforeunload", flushProgressSave);
+    // pagehide is more reliable on mobile browsers
+    window.addEventListener("pagehide", flushProgressSave);
+
     reader.book.ready.then(() => {
         let locations_key = reader.book.key() + "-locations";
         // Key to persist last-read position for this book in localStorage
@@ -134,6 +214,9 @@ var reader;
                             JSON.stringify(posObj)
                         );
                     } catch (e) {}
+
+                    // Auto-save reading progress to backend (throttled)
+                    throttledSaveProgress(location.start.cfi, location.end.percentage);
                 });
                 reader.rendition.reportLocation();
                 progressDiv.style.visibility = "visible";
