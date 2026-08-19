@@ -18,6 +18,7 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/popup.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/reader.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='js/libs/pickr/pickr.min.css') }}">
 </head>
 
 <body>
@@ -96,11 +97,16 @@
                 <button type="button" id="blackTheme" class="blackTheme" onclick="selectTheme(this.id)"><span
                         id="blackSelected"> </span>{{_('Black')}}</button>
 
-          <!-- Custom theme: color input + pickr -->
-          <div id="customThemeWrapper" style="display: inline-flex; align-items: center;gap: 8px;margin: 5px 8px;">Custom:
-            <!-- Picker-only UI: swatch acts as the picker button, and a small span shows selection tick -->
-            <div id="customThemeSwatch" title="Pick color" style="width: 30px; height: 30px; border: 1px solid #ccc; border-radius: 3px;cursor: pointer;"></div>
-            <span id="customSelected"> </span>
+          <!-- Custom theme: background + text color pickers with Auto option -->
+          <div id="customThemeWrapper" style="display: inline-flex; align-items: center; gap: 6px; margin: 5px 8px; vertical-align: middle;">
+            <span id="customSelected" style="display:inline-block; min-width: 14px; font-weight: bold;"> </span>
+            <span style="font-size: 12px;">Bg</span>
+            <div id="customThemeSwatch" title="Background color" style="width: 28px; height: 28px; border: 1px solid #ccc; border-radius: 3px; cursor: pointer;"></div>
+            <span style="font-size: 12px; margin-left: 6px;">Aa</span>
+            <div id="customFgSwatch" title="Text color" style="width: 28px; height: 28px; border: 1px solid #ccc; border-radius: 3px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; font-weight: bold; font-size: 16px;"></div>
+            <label title="Auto contrast (black or white based on background)" style="font-size: 12px; display: inline-flex; align-items: center; gap: 3px; margin-left: 4px; cursor: pointer;">
+              <input type="checkbox" id="customFgAuto" checked>Auto
+            </label>
           </div>
         </div>
             <div class="form-group">
@@ -150,6 +156,7 @@
     <script src="{{ url_for('static', filename='js/libs/jquery.min.js') }}"></script>
     <script src="{{ url_for('static', filename='js/compress/jszip_epub.min.js') }}"></script>
     <script src="{{ url_for('static', filename='js/libs/epub.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/libs/pickr/pickr.min.js') }}"></script>
     <script type="text/javascript">
         window.calibre = {
             filePath: "{{ url_for('static', filename='js/libs/') }}",
@@ -162,12 +169,22 @@
             bookFormat: "{{ book_format }}"
         };
 
-      // load custom theme color from localStorage (if any)
-      var _savedCustomThemeColor = null;
+      // Custom theme state: background color, foreground color, auto-contrast flag.
+      // Persisted separately so existing installs (which only stored bg) keep working.
+      var CUSTOM_THEME = {
+        bg: "#ffffff",
+        fg: "#000000",
+        auto: true
+      };
       try {
-        _savedCustomThemeColor = localStorage.getItem(
-          "calibre.reader.customTheme"
-        );
+        var _savedBg = localStorage.getItem("calibre.reader.customBg") ||
+                       localStorage.getItem("calibre.reader.customTheme");
+        var _savedFg = localStorage.getItem("calibre.reader.customFg");
+        var _savedAuto = localStorage.getItem("calibre.reader.customFgAuto");
+        if (_savedBg) CUSTOM_THEME.bg = _savedBg;
+        if (_savedFg) { CUSTOM_THEME.fg = _savedFg; CUSTOM_THEME.auto = false; }
+        if (_savedAuto !== null) CUSTOM_THEME.auto = _savedAuto === "true";
+        if (CUSTOM_THEME.auto) CUSTOM_THEME.fg = "#000000";
       } catch (e) {}
 
         window.themes = {
@@ -190,13 +207,62 @@
                 "bgColor": "#e8bf5e",
                 "css_path": "{{ url_for('static', filename='css/epub_themes.css') }}",
                 "title-color": "#2f2f2f"
-            },            
+            },
             "blackTheme": {
                 "bgColor": "black",
                 "css_path": "{{ url_for('static', filename='css/epub_themes.css') }}",
                 "title-color": "#fff"
             },
+            "customTheme": {
+                "bgColor": CUSTOM_THEME.bg,
+                "fgColor": CUSTOM_THEME.fg,
+                "title-color": CUSTOM_THEME.fg
+            }
         };
+
+        // Build epub.js theme rules that actually override the book's own CSS.
+        // Books commonly set color on body/p/div/span/h1..h6/td/li with their
+        // own selectors and sometimes !important. Using only `body { color }`
+        // gets overridden (specificity is equal but the book stylesheet loads
+        // later), and child elements break inheritance. We target a broad set
+        // of text containers with !important so the custom colors win.
+        //
+        // epub.js adds the theme class to the spine document's <body>, so
+        // ".customTheme" matches body itself; descendants use ".customTheme p"
+        // etc. Background is NOT applied to p/div/span to avoid painting over
+        // images and boxed content.
+        //
+        // We serialize to a CSS string and use registerCss() because
+        // registerRules()/addStylesheetRules() APPENDS rules on every call,
+        // which would pile up duplicate rules while dragging the picker.
+        // registerCss() → addStylesheetCss() sets .innerHTML (replaces).
+        function buildCustomThemeCss(bg, fg) {
+            var fgSel = [
+                ".customTheme", ".customTheme p", ".customTheme div",
+                ".customTheme span", ".customTheme a", ".customTheme li",
+                ".customTheme td", ".customTheme th", ".customTheme caption",
+                ".customTheme h1", ".customTheme h2", ".customTheme h3",
+                ".customTheme h4", ".customTheme h5", ".customTheme h6",
+                ".customTheme blockquote", ".customTheme dd",
+                ".customTheme dt", ".customTheme figcaption",
+                ".customTheme label"
+            ].join(",");
+            return ".customTheme { background: " + bg + " !important; }\n" +
+                   fgSel + " { color: " + fg + " !important; }\n";
+        }
+
+        function registerCustomTheme() {
+            try {
+                if (reader && reader.rendition && reader.rendition.themes) {
+                    reader.rendition.themes.registerCss(
+                        "customTheme",
+                        buildCustomThemeCss(CUSTOM_THEME.bg, CUSTOM_THEME.fg)
+                    );
+                }
+            } catch (e) {
+                console.error("Failed to register customTheme", e);
+            }
+        }
 
         function selectTheme (id) {
             let tickSpans = document.getElementById("themes").querySelectorAll("span");
@@ -219,16 +285,11 @@
             // Saving theme to local storage
             localStorage.setItem("calibre.reader.theme", id);
 
-            // If selecting custom theme, ensure epubjs theme is registered with chosen bg color
+            // If selecting custom theme, ensure epubjs theme is registered with chosen bg/fg
             if (id === "customTheme") {
-                let customColor = window.themes.customTheme.bgColor || "#ffffff";
                 try {
+                    registerCustomTheme();
                     if (reader && reader.rendition && reader.rendition.themes) {
-                        reader.rendition.themes.register("customTheme", {
-                            body: {
-                               background: customColor,
-                            },
-                        });
                         reader.rendition.themes.select("customTheme");
                     }
                  } catch (e) {
@@ -243,8 +304,9 @@
 
             // Apply theme to rest of the page.
             document.getElementById("main").style.backgroundColor = themes[id]["bgColor"];
-            document.getElementById("titlebar").style.color = themes[id]["title-color"] || "#fff";
-            document.getElementById("progress").style.color = themes[id]["title-color"] || "#fff";
+            var tc = themes[id]["title-color"] || "#fff";
+            document.getElementById("titlebar").style.color = tc;
+            document.getElementById("progress").style.color = tc;
         }
 
         // font size settings logic
@@ -400,26 +462,37 @@
         })();
     </script>
     <script type="text/javascript">
-      // Initialize custom theme UI and Pickr once Pickr is available
+      // Initialize custom theme UI and Pickr once Pickr is available.
+      // Exposes: pickBg, pickFg, auto checkbox, live apply + persistence.
       (function () {
-        var swatch = document.getElementById("customThemeSwatch");
-        var saved =
-          window.themes &&
-          window.themes.customTheme &&
-          window.themes.customTheme.bgColor
-            ? window.themes.customTheme.bgColor
-            : "#ffffff";
-        if (swatch) swatch.style.background = saved;
+        var bgSwatch = document.getElementById("customThemeSwatch");
+        var fgSwatch = document.getElementById("customFgSwatch");
+        var autoCheckbox = document.getElementById("customFgAuto");
+
+        // Sync swatch visuals from CUSTOM_THEME state
+        function paintSwatches() {
+          if (bgSwatch) bgSwatch.style.background = CUSTOM_THEME.bg;
+          if (fgSwatch) {
+            fgSwatch.style.background = CUSTOM_THEME.bg;
+            fgSwatch.style.color = CUSTOM_THEME.fg;
+            fgSwatch.textContent = "Aa";
+            // Dim when auto is on (it's computed, not user-chosen)
+            fgSwatch.style.opacity = CUSTOM_THEME.auto ? "0.55" : "1";
+          }
+          if (autoCheckbox) autoCheckbox.checked = CUSTOM_THEME.auto;
+          // Lock/unlock the foreground Pickr when auto is toggled
+          try {
+            if (window._customPickrFg) {
+              if (CUSTOM_THEME.auto) window._customPickrFg.disable();
+              else window._customPickrFg.enable();
+            }
+          } catch (e) {}
+        }
 
         function _hexToRgb(hex) {
-          hex = hex.replace("#", "");
+          hex = ("" + hex).replace("#", "");
           if (hex.length === 3) {
-            hex = hex
-              .split("")
-              .map(function (h) {
-                return h + h;
-              })
-              .join("");
+            hex = hex.split("").map(function (h) { return h + h; }).join("");
           }
           var bigint = parseInt(hex, 16);
           return {
@@ -429,135 +502,206 @@
           };
         }
 
-        // Better contrast decision using WCAG relative luminance and contrast ratio
-        // Returns true if black text is the better choice (i.e. background is light)
+        // WCAG relative luminance; returns true if background is light
+        // (i.e. black text gives higher contrast than white).
         function _isLight(hex) {
           try {
             var rgb = _hexToRgb(hex);
-            // convert 0-255 to 0-1
             var srgb = { r: rgb.r / 255, g: rgb.g / 255, b: rgb.b / 255 };
             function lin(c) {
               return c <= 0.03928
                 ? c / 12.92
                 : Math.pow((c + 0.055) / 1.055, 2.4);
             }
-            var R = lin(srgb.r),
-              G = lin(srgb.g),
-              B = lin(srgb.b);
-            var L = 0.2126 * R + 0.7152 * G + 0.0722 * B; // relative luminance
-
-            // contrast ratios against black (L=0) and white (L=1)
-            var contrastWithBlack = (L + 0.05) / (0.0 + 0.05);
-            var contrastWithWhite = (1.0 + 0.05) / (L + 0.05);
-
-            // pick the text color that gives higher contrast. If black gives >= contrast, treat bg as light
+            var L = 0.2126 * lin(srgb.r) + 0.7152 * lin(srgb.g) + 0.0722 * lin(srgb.b);
+            var contrastWithBlack = (L + 0.05) / 0.05;
+            var contrastWithWhite = 1.05 / (L + 0.05);
             return contrastWithBlack >= contrastWithWhite;
           } catch (e) {
             return true;
           }
         }
 
-        function applyCustomColor(hex) {
-          if (!hex) return;
+        function _normHex(hex) {
+          if (!hex) return "#000000";
           if (hex[0] !== "#") hex = "#" + hex;
-          window.themes.customTheme.bgColor = hex;
-          try {
-            localStorage.setItem("calibre.reader.customTheme", hex);
-          } catch (e) {}
-          if (swatch) swatch.style.background = hex;
+          return hex;
+        }
 
-          // Mark theme as selected
-          try {
-            localStorage.setItem("calibre.reader.theme", "customTheme");
-          } catch (e) {}
-          // Clear ticks and set custom tick
-          var tickSpans = document
-            .getElementById("themes")
-            .querySelectorAll("span");
-          tickSpans.forEach(function (ts) {
-            ts.textContent = "";
-          });
-          var customTick = document.getElementById("customSelected");
-          if (customTick) customTick.textContent = "✓";
+        // Apply current CUSTOM_THEME state to chrome + epub iframe + localStorage.
+        function applyCustomTheme(persist) {
+          var bg = CUSTOM_THEME.bg;
+          var fg;
+          if (CUSTOM_THEME.auto) {
+            fg = _isLight(bg) ? "#000000" : "#ffffff";
+            CUSTOM_THEME.fg = fg;
+          } else {
+            fg = CUSTOM_THEME.fg;
+          }
 
-          // Compute title/text color based on contrast (black or white)
-          var titleColor = _isLight(hex) ? "#000000" : "#ffffff";
+          // Keep window.themes map in sync (selectTheme reads from here)
+          window.themes.customTheme.bgColor = bg;
+          window.themes.customTheme.fgColor = fg;
+          window.themes.customTheme["title-color"] = fg;
+
+          if (persist) {
+            try {
+              localStorage.setItem("calibre.reader.customBg", bg);
+              // legacy key for back-compat
+              localStorage.setItem("calibre.reader.customTheme", bg);
+              localStorage.setItem("calibre.reader.customFg",
+                CUSTOM_THEME.auto ? "" : fg);
+              localStorage.setItem("calibre.reader.customFgAuto",
+                String(CUSTOM_THEME.auto));
+            } catch (e) {}
+          }
+
+          // Chrome UI (outside iframe)
           try {
-            document.getElementById("main").style.backgroundColor = hex;
-            document.getElementById("titlebar").style.color = titleColor;
-            document.getElementById("progress").style.color = titleColor;
+            document.getElementById("main").style.backgroundColor = bg;
+            document.getElementById("titlebar").style.color = fg;
+            document.getElementById("progress").style.color = fg;
           } catch (e) {}
 
-          // Persist title-color in themes map so selectTheme reads a consistent value
-          try {
-            window.themes.customTheme["title-color"] = titleColor;
-          } catch (e) {}
-
-          // Register and select theme in epub rendition (include text color)
+          // epub.js iframe content
           try {
             if (reader && reader.rendition && reader.rendition.themes) {
-              reader.rendition.themes.register("customTheme", {
-                body: { background: hex, color: titleColor },
-              });
+              // Use registerCss (innerHTML replace) so live color dragging
+              // doesn't accumulate duplicate rules in the style node.
+              reader.rendition.themes.registerCss(
+                "customTheme",
+                buildCustomThemeCss(bg, fg)
+              );
+              // Re-select to force update even if already selected
               reader.rendition.themes.select("customTheme");
+              // Ensure the theme class lands on the LIVE body of every
+              // content iframe. epub.js's Contents caches the body reference
+              // at creation time and never refreshes it, so select()/inject()
+              // may add the class to a stale, detached node when a view was
+              // re-created. Touching document.body directly is idempotent.
+              reader.rendition.getContents().forEach(function (content) {
+                try {
+                  if (content && content.document && content.document.body) {
+                    content.document.body.classList.add("customTheme");
+                  }
+                } catch (e) {}
+              });
             }
           } catch (e) {
             console.error("Failed to apply custom theme to reader", e);
           }
+
+          paintSwatches();
+        }
+
+        function setCustomBg(hex) {
+          CUSTOM_THEME.bg = _normHex(hex);
+          // Background change marks theme as selected
+          try { localStorage.setItem("calibre.reader.theme", "customTheme"); } catch (e) {}
+          var tickSpans = document.getElementById("themes").querySelectorAll("span");
+          tickSpans.forEach(function (ts) { ts.textContent = ""; });
+          var customTick = document.getElementById("customSelected");
+          if (customTick) customTick.textContent = "✓";
+          applyCustomTheme(true);
+        }
+
+        function setCustomFg(hex) {
+          CUSTOM_THEME.fg = _normHex(hex);
+          CUSTOM_THEME.auto = false;
+          if (autoCheckbox) autoCheckbox.checked = false;
+          try { localStorage.setItem("calibre.reader.theme", "customTheme"); } catch (e) {}
+          applyCustomTheme(true);
+        }
+
+        function setAutoFg(enabled) {
+          CUSTOM_THEME.auto = !!enabled;
+          if (CUSTOM_THEME.auto) {
+            CUSTOM_THEME.fg = _isLight(CUSTOM_THEME.bg) ? "#000000" : "#ffffff";
+          }
+          applyCustomTheme(true);
         }
 
         // Delay init until Pickr is available
         function ensurePickrAndInit() {
-          if (window.Pickr) {
-            try {
-              var pickr = Pickr.create({
-                el: "#customThemeSwatch",
-                theme: "classic",
-                default: saved,
-                components: {
-                  preview: true,
-                  opacity: false,
-                  hue: true,
-                  interaction: {
-                    hex: true,
-                    input: true,
-                    save: true,
-                  },
-                },
-              });
-
-              // Immediate apply when color changes in the picker
-              pickr.on("change", function (color, instance) {
-                try {
-                  var hex = color.toHEXA().toString();
-                  if (swatch) swatch.style.background = hex;
-                  applyCustomColor(hex);
-                } catch (e) {}
-              });
-
-              // Also respond to save (some pickr configs use save)
-              pickr.on("save", function (color, instance) {
-                try {
-                  var hex = color.toHEXA().toString();
-                  if (swatch) swatch.style.background = hex;
-                  applyCustomColor(hex);
-                  pickr.hide();
-                } catch (e) {}
-              });
-
-              // Clicking swatch opens pickr
-              if (swatch)
-                swatch.addEventListener("click", function () {
-                  pickr.show();
-                });
-            } catch (e) {
-              console.error("Pickr init failed", e);
-            }
+          if (!window.Pickr) {
+            setTimeout(ensurePickrAndInit, 150);
             return;
           }
-          // wait a bit
-          setTimeout(ensurePickrAndInit, 150);
+          try {
+            var commonComponents = {
+              preview: true,
+              opacity: false,
+              hue: true,
+              interaction: { hex: true, input: true, save: true }
+            };
+
+            var pickrBg = Pickr.create({
+              el: "#customThemeSwatch",
+              theme: "classic",
+              "default": CUSTOM_THEME.bg,
+              components: commonComponents
+            });
+            pickrBg.on("change", function (color) {
+              try { setCustomBg(color.toHEXA().toString()); } catch (e) {}
+            });
+            pickrBg.on("save", function (color) {
+              try {
+                setCustomBg(color.toHEXA().toString());
+                pickrBg.hide();
+              } catch (e) {}
+            });
+
+            var pickrFg = Pickr.create({
+              el: "#customFgSwatch",
+              theme: "classic",
+              "default": CUSTOM_THEME.fg || "#000000",
+              components: commonComponents
+            });
+            pickrFg.on("change", function (color) {
+              try { setCustomFg(color.toHEXA().toString()); } catch (e) {}
+            });
+            pickrFg.on("save", function (color) {
+              try {
+                setCustomFg(color.toHEXA().toString());
+                pickrFg.hide();
+              } catch (e) {}
+            });
+
+            if (fgSwatch) {
+              fgSwatch.addEventListener("click", function () {
+                if (CUSTOM_THEME.auto) return;
+                pickrFg.show();
+              });
+            }
+            if (autoCheckbox) {
+              autoCheckbox.addEventListener("change", function () {
+                setAutoFg(autoCheckbox.checked);
+              });
+            }
+
+            // Expose for debugging / external calls
+            window._customPickrBg = pickrBg;
+            window._customPickrFg = pickrFg;
+          } catch (e) {
+            console.error("Pickr init failed", e);
+          }
         }
+
+        paintSwatches();
+        // If custom theme was previously selected, apply it once the reader
+        // is ready. epub.js loads asynchronously, so poll briefly.
+        try {
+          var previouslySelected = localStorage.getItem("calibre.reader.theme");
+          if (previouslySelected === "customTheme") {
+            (function waitForReaderAndApply() {
+              if (window.reader && reader.rendition && reader.rendition.themes) {
+                applyCustomTheme(false);
+              } else {
+                setTimeout(waitForReaderAndApply, 150);
+              }
+            })();
+          }
+        } catch (e) {}
 
         ensurePickrAndInit();
       })();

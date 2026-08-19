@@ -1,24 +1,81 @@
+/*
+ * Reader themes. epub.js adds the theme class to each spine document's
+ * <body> element (see Contents.addClass in epub.min.js), so the bare class
+ * selector (e.g. `.darkTheme`) matches <body>, and `.darkTheme p` matches
+ * descendant paragraphs.
+ *
+ * !important + broad text-container selectors are required because many EPUBs
+ * ship their own `body { color: #000 !important }` and per-element colors on
+ * p/div/span/h*/td/li. A plain `.darkTheme { color: #fff }` has equal
+ * specificity but loads before the book's stylesheet, so it loses and child
+ * elements break inheritance — resulting in e.g. black text on a black
+ * background.
+ *
+ * We deliberately do NOT set background on p/div/span to avoid painting over
+ * images, callout boxes, code blocks, etc.
+ */
+
 .lightTheme {
-	background: #fff;
-	color: #000;
+    background: #fff !important;
+}
+.lightTheme,
+.lightTheme p, .lightTheme div, .lightTheme span, .lightTheme a,
+.lightTheme li, .lightTheme td, .lightTheme th, .lightTheme caption,
+.lightTheme h1, .lightTheme h2, .lightTheme h3,
+.lightTheme h4, .lightTheme h5, .lightTheme h6,
+.lightTheme blockquote, .lightTheme dd, .lightTheme dt,
+.lightTheme figcaption, .lightTheme label {
+    color: #000 !important;
 }
 
 .darkTheme {
-	background: #202124;
-	color: #fff
+    background: #202124 !important;
+}
+.darkTheme,
+.darkTheme p, .darkTheme div, .darkTheme span, .darkTheme a,
+.darkTheme li, .darkTheme td, .darkTheme th, .darkTheme caption,
+.darkTheme h1, .darkTheme h2, .darkTheme h3,
+.darkTheme h4, .darkTheme h5, .darkTheme h6,
+.darkTheme blockquote, .darkTheme dd, .darkTheme dt,
+.darkTheme figcaption, .darkTheme label {
+    color: #fff !important;
 }
 
 .sepiaTheme {
-	background: #ece1ca;
-	color: #000;
+    background: #ece1ca !important;
+}
+.sepiaTheme,
+.sepiaTheme p, .sepiaTheme div, .sepiaTheme span, .sepiaTheme a,
+.sepiaTheme li, .sepiaTheme td, .sepiaTheme th, .sepiaTheme caption,
+.sepiaTheme h1, .sepiaTheme h2, .sepiaTheme h3,
+.sepiaTheme h4, .sepiaTheme h5, .sepiaTheme h6,
+.sepiaTheme blockquote, .sepiaTheme dd, .sepiaTheme dt,
+.sepiaTheme figcaption, .sepiaTheme label {
+    color: #000 !important;
 }
 
 .amberTheme {
-    background: #e8bf5e;
-    color: #000;
+    background: #e8bf5e !important;
+}
+.amberTheme,
+.amberTheme p, .amberTheme div, .amberTheme span, .amberTheme a,
+.amberTheme li, .amberTheme td, .amberTheme th, .amberTheme caption,
+.amberTheme h1, .amberTheme h2, .amberTheme h3,
+.amberTheme h4, .amberTheme h5, .amberTheme h6,
+.amberTheme blockquote, .amberTheme dd, .amberTheme dt,
+.amberTheme figcaption, .amberTheme label {
+    color: #000 !important;
 }
 
 .blackTheme {
-	background: #000;
-	color: #fff;
+    background: #000 !important;
+}
+.blackTheme,
+.blackTheme p, .blackTheme div, .blackTheme span, .blackTheme a,
+.blackTheme li, .blackTheme td, .blackTheme th, .blackTheme caption,
+.blackTheme h1, .blackTheme h2, .blackTheme h3,
+.blackTheme h4, .blackTheme h5, .blackTheme h6,
+.blackTheme blockquote, .blackTheme dd, .blackTheme dt,
+.blackTheme figcaption, .blackTheme label {
+    color: #fff !important;
 }
