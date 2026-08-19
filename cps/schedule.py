@@ -112,4 +112,3 @@ def should_task_be_running(start, duration):
 def calclulate_end_time(start, duration):
     start_time = datetime.datetime.now().replace(hour=start, minute=0)
     return start_time + datetime.timedelta(hours=duration // 60, minutes=duration % 60)
-
