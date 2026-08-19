@@ -78,8 +78,13 @@ def register_scheduled_tasks(reconnect=True):
                            name="end scheduled task")
 
         # Kick-off tasks, if they should currently be running
+        # Only kick off lightweight tasks (clean, reconnect), not heavy tasks like thumbnail generation
         if should_task_be_running(start, duration):
-            scheduler.schedule_tasks_immediately(tasks=get_scheduled_tasks(reconnect))
+            lightweight_tasks = [[lambda: TaskClean(), 'delete temp', True]]
+            if reconnect:
+                from .tasks.database import TaskReconnectDatabase
+                lightweight_tasks.append([lambda: TaskReconnectDatabase(), 'reconnect', False])
+            scheduler.schedule_tasks_immediately(tasks=lightweight_tasks)
 
 
 def register_startup_tasks():
