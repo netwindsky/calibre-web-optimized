@@ -1061,7 +1061,27 @@ msgstr "未读书籍"
 msgid "Show unread"
 msgstr "显示未读"
 
-#: cps/render_template.py:68
+#: cps/render_template.py:69
+msgid "Reading Now"
+msgstr "正在阅读"
+
+#: cps/render_template.py:72
+msgid "Show books currently being read"
+msgstr "显示正在阅读的书籍"
+
+#: cps/templates/index.html:74 cps/templates/index.html:188
+msgid "Continue Reading"
+msgstr "继续阅读"
+
+#: cps/templates/detail.html:166
+msgid "Reading progress"
+msgstr "阅读进度"
+
+#: cps/templates/index.html
+msgid "Mark as Finished"
+msgstr "标记已读完"
+
+#: cps/render_template.py:73
 msgid "Discover"
 msgstr "发现"
 
