@@ -12,6 +12,12 @@
               <span class="img" title="{{ entry.Books.title }}">
                 {{ image.book_cover(entry.Books) }}
                 {% if entry[2] == True %}<span class="badge read glyphicon glyphicon-ok"></span>{% endif %}
+                {% if reading_progress and entry.Books.id in reading_progress and entry[2] != True %}
+                {% set _rp = reading_progress[entry.Books.id] %}
+                <div class="reading-progress-cover" data-toggle="tooltip" data-placement="top" title="{{ '%.1f'|format(_rp.progress_percent) }}%">
+                  <div class="reading-progress-cover-bar{% if _rp.progress_percent > 90 %} reading-progress-complete{% endif %}" style="width: {{ _rp.progress_percent }}%;"></div>
+                </div>
+                {% endif %}
               </span>
           </a>
       </div>
@@ -57,6 +63,17 @@
           {% endfor %}
         </div>
         {% endif %}
+        {% if reading_progress and entry.Books.id in reading_progress and entry[2] != True %}
+        {% set _rp = reading_progress[entry.Books.id] %}
+        <div class="reading-progress-meta" data-toggle="tooltip" title="{{ '%.0f'|format(_rp.progress_percent) }}%">
+          <div class="progress" style="margin-bottom:4px;">
+            <div class="progress-bar{% if _rp.progress_percent > 90 %} progress-bar-success{% endif %}" role="progressbar" aria-valuenow="{{ '%.0f'|format(_rp.progress_percent) }}" aria-valuemin="0" aria-valuemax="100" style="min-width:2%;width:{{ _rp.progress_percent }}%;">{{ '%.0f'|format(_rp.progress_percent) }}%</div>
+          </div>
+        </div>
+        {% if page == "in_progress" %}
+        <a href="{{ url_for('web.read_book', book_id=entry.Books.id, book_format=_rp.format or 'epub') }}" target="_blank" class="btn btn-xs btn-primary continue-reading-btn"><span class="glyphicon glyphicon-book"></span> {{ _('Continue Reading') }}</a>
+        {% endif %}
+        {% endif %}
     </div>
     </div>
     {% endfor %}
@@ -96,20 +113,42 @@
   <div class="row display-flex">
     {% if entries[0] %}
     {% for entry in entries %}
+    {% if reading_progress and entry.Books.id in reading_progress and entry[2] != True %}
+    {% set _rp = reading_progress[entry.Books.id] %}
+    {% else %}
+    {% set _rp = None %}
+    {% endif %}
     <div class="col-sm-3 col-lg-2 col-xs-6 book session" id="books">
       <div class="cover">
           <a href="{{ url_for('web.show_book', book_id=entry.Books.id) }}" {% if simple==false %}data-toggle="modal" data-target="#bookDetailsModal" data-remote="false"{% endif %}>
             <span class="img" title="{{ entry.Books.title }}">
               {{ image.book_cover(entry.Books) }}
-              {% if entry[2] == True %}<span class="badge read glyphicon glyphicon-ok"></span>{% endif %}
+              {% if entry[2] == True and page != "in_progress" %}<span class="badge read glyphicon glyphicon-ok"></span>{% endif %}
+              {% if _rp %}
+              <div class="reading-progress-cover" data-toggle="tooltip" data-placement="top" title="{{ '%.1f'|format(_rp.progress_percent) }}%">
+                <div class="reading-progress-cover-bar{% if _rp.progress_percent > 90 %} reading-progress-complete{% endif %}" style="width: {{ _rp.progress_percent }}%;"></div>
+              </div>
+              {% endif %}
             </span>
           </a>
+          {% if page == "in_progress" %}
+          <a href="{{ url_for('web.read_book', book_id=entry.Books.id, book_format=(_rp.format if _rp else 'epub')) }}" target="_blank"
+             class="cover-play-btn" title="{{ _('Continue Reading') }}">
+            <span class="glyphicon glyphicon-play"></span>
+          </a>
+          <button type="button" class="mark-finished-cover"
+                  data-book-id="{{ entry.Books.id }}"
+                  data-href="{{ url_for('web.toggle_read', book_id=entry.Books.id) }}"
+                  title="{{ _('Mark as Finished') }}">
+            <span class="glyphicon glyphicon-ok"></span>
+          </button>
+          {% endif %}
       </div>
-      <div class="meta">
+      <div class="meta{% if page == 'in_progress' %} meta-reading{% endif %}">
         <a href="{{ url_for('web.show_book', book_id=entry.Books.id) }}" {% if simple==false %}data-toggle="modal" data-target="#bookDetailsModal" data-remote="false"{% endif %}>
           <p title="{{ entry.Books.title }}" class="title">{{entry.Books.title|shortentitle}}</p>
         </a>
-        <p class="author">
+        <p class="author{% if page == 'in_progress' %} author-clamp{% endif %}">
           {% for author in entry.Books.authors %}
             {% if loop.index > g.config_authors_max and g.config_authors_max != 0 %}
               {% if not loop.first %}
@@ -160,4 +199,42 @@
   {% endif %}
   </div>
 </div>
+{% endblock %}
+
+{% block js %}
+<script>
+$(function () {
+  // "标记已读完"：POST /ajax/toggleread/<id>，成功后从列表移除卡片
+  $(document).on("click", ".mark-finished-cover", function (e) {
+    e.preventDefault();
+    e.stopPropagation();
+    var $btn = $(this);
+    var bookId = $btn.data("book-id");
+    var csrf = $("input[name='csrf_token']").val();
+    if ($btn.hasClass("disabled")) return;
+    $btn.addClass("disabled");
+    $.ajax({
+      url: "/ajax/toggleread/" + bookId,
+      method: "POST",
+      headers: { "X-CSRFToken": csrf }
+    }).done(function () {
+      var $card = $btn.closest(".book");
+      $card.fadeOut(250, function () {
+        $card.remove();
+        // Update count in heading and document title
+        var remaining = $(".load-more .book").length;
+        var $h2 = $(".discover.load-more > h2");
+        if ($h2.length) {
+          var baseText = $h2.text().replace(/\s*\(\d+\)\s*$/, "");
+          $h2.text(baseText + " (" + remaining + ")");
+        }
+        var docBase = document.title.replace(/\s*\(\d+\)\s*$/, "");
+        document.title = docBase + " (" + remaining + ")";
+      });
+    }).fail(function () {
+      $btn.removeClass("disabled");
+    });
+  });
+});
+</script>
 {% endblock %}
