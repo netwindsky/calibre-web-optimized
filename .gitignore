@@ -36,3 +36,15 @@ client_secrets.json
 gmail.json
 /.key
 local_config/
+
+### Local dev artifacts ###
+cookie*.txt
+ck*.txt
+*.png
+debug_*.py
+local_run.py
+exclude.txt
+启动服务器.bat
+.playwright-mcp/
+.sisyphus/
+calibre-library/
