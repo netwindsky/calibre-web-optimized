@@ -13,6 +13,47 @@ var reader;
         bookmarks: calibre.bookmark ? [calibre.bookmark] : [],
     });
 
+    // Allow scripts inside the book content iframe.
+    //
+    // epub.js (epub.min.js, IframeView.create) builds the content iframe with
+    // `sandbox="allow-same-origin"` and only appends `allow-scripts` when
+    // `settings.allowScriptedContent` is true (it defaults to false). Without
+    // it, books whose pages rely on <script> (many covers do) throw
+    //   Blocked script execution in 'about:srcdoc' because the document's
+    //   frame is sandboxed and the 'allow-scripts' permission is not set.
+    // and the page renders broken (e.g. the themed background/text colors the
+    // user picked end up wrong).
+    //
+    // Chrome additionally warns (and rightfully so) that a sandbox carrying
+    // BOTH allow-scripts AND allow-same-origin can be escaped by the framed
+    // content, so instead of adding allow-scripts we patch epub.min.js to
+    // REMOVE the sandbox attribute entirely whenever allowScriptedContent is
+    // enabled (see IframeView.create). Without a sandbox attribute, a srcdoc
+    // document keeps the parent origin, so the parent can still drive the
+    // iframe DOM (themes, layout, marks) and the book's own scripts run —
+    // with no sandbox warning. Security trade-off: book scripts get full
+    // access to the reader page (acceptable for a personal library).
+    //
+    // epub.js renders asynchronously (display() is queued), so patching the
+    // settings here — right after ePubReader() returns and before the first
+    // iframe is created — is safe. We patch both the rendition settings and
+    // the already-constructed manager's viewSettings (IframeView receives a
+    // copy of viewSettings, not a live reference).
+    try {
+        if (reader.rendition) {
+            reader.rendition.settings.allowScriptedContent = true;
+            if (
+                reader.rendition.manager &&
+                reader.rendition.manager.viewSettings
+            ) {
+                reader.rendition.manager.viewSettings.allowScriptedContent =
+                    true;
+            }
+        }
+    } catch (e) {
+        console.error("Failed to enable allowScriptedContent", e);
+    }
+
     Object.keys(themes).forEach(function (theme) {
         reader.rendition.themes.register(theme, themes[theme].css_path);
     });
@@ -186,7 +227,45 @@ var reader;
                 } catch (e) {}
 
                 reader.rendition.on("relocated", (location) => {
-                    let percentage = Math.round(location.end.percentage * 100);
+                    // Re-apply the custom theme class to the LIVE <body> of
+                    // every content iframe. epub.js's Contents caches the
+                    // body reference at creation time (`this.content`) and
+                    // never refreshes it; when a view is re-created (e.g.
+                    // leaving the cover page and coming back, or any section
+                    // whose body gets regenerated) themes.inject() adds the
+                    // "customTheme" class to that detached/stale node, so the
+                    // visible body misses it and text falls back to the
+                    // book's own (black) color. Adding the class straight to
+                    // document.body here is cheap and idempotent.
+                    try {
+                        if (
+                            reader.rendition.themes &&
+                            reader.rendition.themes._current === "customTheme"
+                        ) {
+                            reader.rendition.getContents().forEach(
+                                function (content) {
+                                    if (
+                                        content &&
+                                        content.document &&
+                                        content.document.body
+                                    ) {
+                                        content.document.body.classList.add(
+                                            "customTheme"
+                                        );
+                                    }
+                                }
+                            );
+                        }
+                    } catch (e) {}
+
+                    // Use start.percentage: epub.js's relocated payload defines the
+                    // top-level percentage from location.start. location.end.percentage
+                    // resolves to 0 for most sections (the end CFI maps outside the
+                    // generated locations range), which made the UI always show 0%.
+                    let startPct = location.start && location.start.percentage;
+                    let percentage = Math.round(
+                        (typeof startPct === "number" ? startPct : 0) * 100
+                    );
                     progressDiv.textContent = percentage + "%";
 
                     // Pages based on generated EPUB locations (CFI positions)
@@ -216,7 +295,7 @@ var reader;
                     } catch (e) {}
 
                     // Auto-save reading progress to backend (throttled)
-                    throttledSaveProgress(location.start.cfi, location.end.percentage);
+                    throttledSaveProgress(location.start.cfi, startPct || 0);
                 });
                 reader.rendition.reportLocation();
                 progressDiv.style.visibility = "visible";
