@@ -46,7 +46,7 @@ from .gdriveutils import getFileFromEbooksFolder, do_gdrive_download
 from .helper import check_valid_domain, check_email, check_username, \
     get_book_cover, get_series_cover_thumbnail, get_download_link, send_mail, generate_random_password, \
     send_registration_mail, check_send_to_ereader, check_read_formats, tags_filters, reset_password, valid_email, \
-    edit_book_read_status, valid_password, get_cover_on_failure
+    edit_book_read_status, valid_password, get_cover_on_failure, mark_book_as_reading
 from .pagination import Pagination
 from .redirect import get_redirect_location
 from .cw_babel import get_available_locale
@@ -156,6 +156,15 @@ def get_email_status_json():
 @user_login_required
 def set_bookmark(book_id, book_format):
     bookmark_key = request.form["bookmark"]
+    progress_percent = None
+    raw_progress = request.form.get("progress_percent")
+    if raw_progress:
+        try:
+            progress = float(raw_progress)
+        except (TypeError, ValueError):
+            progress = None
+        if progress is not None:
+            progress_percent = min(max(progress, 0.0), 100.0)
     ub.session.query(ub.Bookmark).filter(and_(ub.Bookmark.user_id == int(current_user.id),
                                               ub.Bookmark.book_id == book_id,
                                               ub.Bookmark.format == book_format)).delete()
@@ -166,10 +175,23 @@ def set_bookmark(book_id, book_format):
     l_bookmark = ub.Bookmark(user_id=current_user.id,
                              book_id=book_id,
                              format=book_format,
-                             bookmark_key=bookmark_key)
+                             bookmark_key=bookmark_key,
+                             progress_percent=progress_percent)
     ub.session.merge(l_bookmark)
     ub.session_commit("Bookmark for user {} in book {} created".format(current_user.id, book_id))
     return "", 201
+
+
+@web.route("/ajax/reading/progress", methods=['GET'])
+@user_login_required
+def get_reading_progress():
+    bookmarks = ub.session.query(ub.Bookmark).filter(
+        and_(ub.Bookmark.user_id == int(current_user.id),
+             ub.Bookmark.progress_percent.isnot(None))).all()
+    books = [{"book_id": bookmark.book_id,
+              "progress_percent": bookmark.progress_percent,
+              "format": bookmark.format} for bookmark in bookmarks]
+    return jsonify({"books": books})
 
 
 @web.route("/ajax/toggleread/<int:book_id>", methods=['POST'])
@@ -386,6 +408,8 @@ def render_books_list(data, sort_param, book_id, page):
         return render_read_books(page, False, order=order)
     elif data == "read":
         return render_read_books(page, True, order=order)
+    elif data == "in_progress":
+        return render_reading_in_progress_books(page, order=order)
     elif data == "hot":
         return render_hot_books(page, order)
     elif data == "download":
@@ -778,6 +802,24 @@ def render_read_books(page, are_read, as_xml=False, order=None):
                                      title=name, page=page_name, order=order[1])
 
 
+def render_reading_in_progress_books(page, order=None):
+    """List books the current user is currently reading (STATUS_IN_PROGRESS)."""
+    sort_param = order[0] if order else []
+    db_filter = and_(ub.ReadBook.user_id == int(current_user.id),
+                     ub.ReadBook.read_status == ub.ReadBook.STATUS_IN_PROGRESS)
+    entries, random, pagination = calibre_db.fill_indexpage(page, 0,
+                                                            db.Books,
+                                                            db_filter,
+                                                            sort_param,
+                                                            True, config.config_read_column,
+                                                            db.books_series_link,
+                                                            db.Books.id == db.books_series_link.c.book,
+                                                            db.Series)
+    name = _('Reading Now') + ' (' + str(pagination.total_count) + ')'
+    return render_title_template('index.html', random=random, entries=entries, pagination=pagination,
+                                 title=name, page="in_progress", order=order[1])
+
+
 def render_archived_books(page, sort_param):
     order = sort_param[0] or []
     archived_books = (ub.session.query(ub.ArchivedBook)
@@ -820,7 +862,7 @@ def books_list(data, sort_param, book_id, page):
     return render_books_list(data, sort_param, book_id, page)
 
 # Limit number of routes to avoid redirects
-data =["rated", "discover", "unread", "read", "hot", "download", "author", "publisher", "series", "ratings", "formats",
+data =["rated", "discover", "unread", "read", "in_progress", "hot", "download", "author", "publisher", "series", "ratings", "formats",
        "category", "language", "archived", "search", "advsearch", "newest"]
 for d in data:
     web.add_url_rule('/{}/<sort_param>'.format(d), view_func=books_list, defaults={'page': 1, 'book_id': 1, "data": d})
@@ -1581,6 +1623,10 @@ def read_book(book_id, book_format):
 
     book.ordered_authors = calibre_db.order_authors([book], False)
 
+    # reading the book marks it as "in progress" for logged-in users
+    if current_user.is_authenticated:
+        mark_book_as_reading(book_id)
+
     # check if book has a bookmark
     bookmark = None
     if current_user.is_authenticated:
@@ -1593,7 +1639,8 @@ def read_book(book_id, book_format):
                                      book_format=book_format)
     elif book_format.lower() == "pdf":
         log.debug("Start pdf reader for %d", book_id)
-        return render_title_template('readpdf.html', pdffile=book_id, title=book.title)
+        return render_title_template('readpdf.html', pdffile=book_id, title=book.title,
+                                     bookmark=bookmark, book_format=book_format)
     elif book_format.lower() == "txt":
         log.debug("Start txt reader for %d", book_id)
         return render_title_template('readtxt.html', txtfile=book_id, title=book.title)

@@ -65,6 +65,11 @@ def get_sidebar_config(kwargs=None):
         {"glyph": "glyphicon-eye-close", "text": _('Unread Books'), "link": 'web.books_list', "id": "unread",
          "visibility": constants.SIDEBAR_READ_AND_UNREAD, 'public': (not current_user.is_anonymous), "page": "unread",
          "show_text": _('Show unread'), "config_show": False})
+    sidebar.append(
+        {"glyph": "glyphicon-time", "text": _('Reading Now'), "link": 'web.books_list', "id": "in_progress",
+         "visibility": constants.SIDEBAR_READ_AND_UNREAD, 'public': (not current_user.is_anonymous),
+         "page": "in_progress",
+         "show_text": _('Show books currently being read'), "config_show": content})
     sidebar.append({"glyph": "glyphicon-random", "text": _('Discover'), "link": 'web.books_list', "id": "rand",
                     "visibility": constants.SIDEBAR_RANDOM, 'public': True, "page": "discover",
                     "show_text": _('Show Random Books'), "config_show": True})
@@ -109,6 +114,9 @@ def get_sidebar_config(kwargs=None):
 # Returns the template for rendering and includes the instance name
 def render_title_template(*args, **kwargs):
     sidebar, simple = get_sidebar_config(kwargs)
+    reading_progress = get_reading_progress()
+    if reading_progress is not None:
+        kwargs.setdefault('reading_progress', reading_progress)
     try:
         return render_template(instance=config.config_calibre_web_title, sidebar=sidebar, simple=simple,
                                accept=config.config_upload_formats.split(','),
@@ -116,3 +124,19 @@ def render_title_template(*args, **kwargs):
     except PermissionError:
         log.error("No permission to access {} file.".format(args[0]))
         abort(403)
+
+
+def get_reading_progress():
+    """Return a dict mapping book_id -> {progress_percent, format} for the current
+    user's in-progress bookmarks, or None for anonymous/anonymous browsing."""
+    if current_user.is_anonymous:
+        return None
+    try:
+        bookmarks = ub.session.query(ub.Bookmark).filter(
+            ub.Bookmark.user_id == int(current_user.id),
+            ub.Bookmark.progress_percent.isnot(None)).all()
+    except Exception as ex:
+        log.debug("Could not load reading progress: %s", ex)
+        return None
+    return {bm.book_id: {'progress_percent': bm.progress_percent, 'format': bm.format}
+            for bm in bookmarks}

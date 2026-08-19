@@ -355,6 +355,30 @@ def edit_book_read_status(book_id, read_status=None):
     return ""
 
 
+def mark_book_as_reading(book_id):
+    """Mark a book as STATUS_IN_PROGRESS for the current user.
+
+    - Creates the ReadBook entry if it does not exist.
+    - Only upgrades UNREAD (or missing) entries to IN_PROGRESS;
+      finished books keep their STATUS_FINISHED.
+    - Sets last_time_started_reading and increments times_started_reading
+      each time the book transitions into IN_PROGRESS.
+    """
+    book_read = ub.session.query(ub.ReadBook).filter(and_(ub.ReadBook.user_id == int(current_user.id),
+                                                          ub.ReadBook.book_id == book_id)).first()
+    if not book_read:
+        book_read = ub.ReadBook(user_id=current_user.id, book_id=book_id,
+                                read_status=ub.ReadBook.STATUS_UNREAD,
+                                times_started_reading=0)
+    if book_read.read_status != ub.ReadBook.STATUS_FINISHED and \
+            book_read.read_status != ub.ReadBook.STATUS_IN_PROGRESS:
+        book_read.read_status = ub.ReadBook.STATUS_IN_PROGRESS
+        book_read.last_time_started_reading = datetime.now(timezone.utc)
+        book_read.times_started_reading = (book_read.times_started_reading or 0) + 1
+    ub.session.merge(book_read)
+    ub.session_commit("Book {} marked as reading".format(book_id))
+
+
 # Deletes a book from the local filestorage, returns True if deleting is successful, otherwise false
 def delete_book_file(book, calibrepath, book_format=None):
     # check that path is 2 elements deep, check that target path has no sub folders
