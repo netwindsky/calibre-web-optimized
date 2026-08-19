@@ -20,7 +20,8 @@ RUN cat /etc/s6-overlay/s6-rc.d/init-calibre-web-config/run | \
     echo '' >> /etc/s6-overlay/s6-rc.d/init-calibre-web-config/run && \
     echo '# Fast permissions: only chown specific files, not recursive on 279k thumbnails' >> /etc/s6-overlay/s6-rc.d/init-calibre-web-config/run && \
     echo 'chown abc:abc /config /app/calibre-web/cps/cache /app/calibre-web/cps/cache/thumbnails 2>/dev/null' >> /etc/s6-overlay/s6-rc.d/init-calibre-web-config/run && \
-    echo 'chown abc:abc /config/app.db /config/app.db-wal /config/app.db-shm /config/calibre-web.log 2>/dev/null' >> /etc/s6-overlay/s6-rc.d/init-calibre-web-config/run && \
+    echo 'chown abc:abc /config/app.db /config/app.db-wal /config/app.db-shm /config/calibre-web.log 2>/dev/null || true' >> /etc/s6-overlay/s6-rc.d/init-calibre-web-config/run && \
+    echo 'exit 0' >> /etc/s6-overlay/s6-rc.d/init-calibre-web-config/run && \
     chmod +x /etc/s6-overlay/s6-rc.d/init-calibre-web-config/run
 
 RUN echo '#!/usr/bin/with-contenv bash' > /etc/s6-overlay/s6-rc.d/svc-calibre-web/run && \
