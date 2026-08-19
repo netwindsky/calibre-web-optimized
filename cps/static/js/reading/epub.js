@@ -270,4 +270,16 @@ var reader;
             window.selectFont(savedFont);
         }
     });
+
+    // Restore saved line spacing once the first page is rendered (the content
+    // document must exist before we can inject the line-height stylesheet).
+    reader.rendition.on("rendered", function onRendered() {
+        const savedLineSpacing = localStorage.getItem("calibre.reader.lineSpacing");
+        if (savedLineSpacing && window.applyLineSpacing) {
+            const parsed = parseFloat(savedLineSpacing);
+            if (!isNaN(parsed)) {
+                window.applyLineSpacing(parsed);
+            }
+        }
+    });
 })();

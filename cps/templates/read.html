@@ -122,6 +122,14 @@
             <button type="button" id="fontSizeIncrease" style="padding: 8px 15px; font-size: 18px; cursor: pointer">+</button>
           </div>
         </div>
+        <div class="form-group lineSpacingWrapper">
+          <label>{{ _('Line Spacing') }}</label>
+          <div class="line-spacing-controls" style="display: flex;align-items: center;gap: 10px;margin-top: 2px;">
+          <button type="button" id="lineSpacingDecrease" style="padding: 8px 15px; font-size: 18px; cursor: pointer">−</button>
+            <span id="lineSpacingDisplay" style="min-width: 60px;text-align: center;font-size: 14px;font-weight: bold;">1.6</span>
+            <button type="button" id="lineSpacingIncrease" style="padding: 8px 15px; font-size: 18px; cursor: pointer">+</button>
+          </div>
+        </div>
               <div class="font" id="font">
                 <label class="item">{{_('Font')}}:</label>
                 <button type="button" id="default" onclick="selectFont(this.id)"><span>✓</span>{{_('Default')}}</button> 
@@ -274,6 +282,70 @@
 
         fontSizeIncrease.addEventListener("click", function () {
             updateFontSize(currentFontSize + stepSize);
+        });
+
+        // Line spacing settings logic
+        let currentLineSpacing = 1.6; // default 1.6
+        const minLineSpacing = 1.0;
+        const maxLineSpacing = 3.0;
+        const lineSpacingStep = 0.1;
+
+        const lineSpacingDisplay = document.getElementById("lineSpacingDisplay");
+        const lineSpacingDecrease = document.getElementById("lineSpacingDecrease");
+        const lineSpacingIncrease = document.getElementById("lineSpacingIncrease");
+
+        // Apply line-height directly to the reader's content document with
+        // !important so it overrides both the EPUB's own stylesheets and the
+        // body-level override that epub.js would otherwise apply (which only
+        // shifts the column layout instead of changing paragraph spacing).
+        window.applyLineSpacing = function (value) {
+            try {
+                var contents = reader && reader.rendition ? reader.rendition.getContents() : [];
+                if (!contents.length) return;
+                var doc = contents[0].document;
+                var style = doc.getElementById("cw-line-spacing");
+                if (!style) {
+                    style = doc.createElement("style");
+                    style.id = "cw-line-spacing";
+                    if (doc.head) doc.head.appendChild(style);
+                    else doc.documentElement.appendChild(style);
+                }
+                style.textContent =
+                    "body { line-height: " + value + " !important; }" +
+                    "p, div, section, article, h1, h2, h3, h4, h5, h6, li, blockquote, td, th { line-height: " + value + " !important; }";
+            } catch (e) {
+                console.error("Failed to apply line spacing", e);
+            }
+        };
+
+        function updateLineSpacing(newSpacing) {
+            if (newSpacing < minLineSpacing) newSpacing = minLineSpacing;
+            if (newSpacing > maxLineSpacing) newSpacing = maxLineSpacing;
+            // Round to 1 decimal to avoid float drift
+            newSpacing = Math.round(newSpacing * 10) / 10;
+
+            currentLineSpacing = newSpacing;
+            lineSpacingDisplay.textContent = newSpacing.toFixed(1);
+            localStorage.setItem("calibre.reader.lineSpacing", newSpacing);
+            window.applyLineSpacing(newSpacing);
+        }
+
+        // Restore saved line spacing on load
+        const savedLineSpacing = localStorage.getItem("calibre.reader.lineSpacing");
+        if (savedLineSpacing) {
+            const parsed = parseFloat(savedLineSpacing);
+            if (!isNaN(parsed)) {
+                currentLineSpacing = Math.min(Math.max(parsed, minLineSpacing), maxLineSpacing);
+                lineSpacingDisplay.textContent = currentLineSpacing.toFixed(1);
+            }
+        }
+
+        lineSpacingDecrease.addEventListener("click", function () {
+            updateLineSpacing(Math.round((currentLineSpacing - lineSpacingStep) * 10) / 10);
+        });
+
+        lineSpacingIncrease.addEventListener("click", function () {
+            updateLineSpacing(Math.round((currentLineSpacing + lineSpacingStep) * 10) / 10);
         });
 
         let defaultFont;
